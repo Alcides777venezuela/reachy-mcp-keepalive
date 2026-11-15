@@ -1,0 +1,61 @@
+name: MCP keepalive
+
+# Mantiene despierto el Space MCP cada 12 h (cron en la nube, sin depender del PC).
+on:
+  schedule:
+    - cron: "0 6,18 * * *"   # 06:00 y 18:00 UTC
+  workflow_dispatch:          # botón para ejecutarlo a mano
+
+permissions:
+  contents: write             # para el commit semanal que evita el auto-disable de GitHub
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      SCHEMA_URL: https://alcides777-reachy-mcp-tool.hf.space/gradio_api/mcp/schema
+      SPACE_URL: https://huggingface.co/spaces/Alcides777/reachy-mcp-tool
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Despertar y verificar el MCP
+        run: |
+          set -euo pipefail
+          ok=0
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/schema.json -w "%{http_code}" --max-time 90 "$SCHEMA_URL" || true)
+            echo "intento $i → HTTP $code"
+            if [ "$code" = "200" ] && grep -q '"endpoint_name"' /tmp/schema.json; then
+              ok=1
+              break
+            fi
+            echo "El Space está dormido; abriendo su página para despertarlo…"
+            curl -s -o /dev/null --max-time 90 "$SPACE_URL" || true
+            sleep 45
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::El MCP no respondió tras 3 intentos"
+            exit 1
+          fi
+          tools=$(grep -o '"endpoint_name"' /tmp/schema.json | wc -l)
+          echo "✅ MCP OK — $tools tools"
+          echo "### ✅ MCP despierto — $tools tools" >> "$GITHUB_STEP_SUMMARY"
+          echo "Hora UTC: $(date -u +'%Y-%m-%d %H:%M:%SZ')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mantener el repo activo (1 commit/semana)
+        run: |
+          set -euo pipefail
+          git config user.name  "keepalive-bot"
+          git config user.email "keepalive@users.noreply.github.com"
+          if [ ! -f .github/keepalive.txt ] || [ $(( $(date +%s) - $(stat -c %Y .github/keepalive.txt) )) -gt 604800 ]; then
+            date -u +"last keepalive: %Y-%m-%dT%H:%M:%SZ" > .github/keepalive.txt
+            git add .github/keepalive.txt
+            git commit -m "keepalive $(date -u +%F)"
+            git push
+          else
+            echo "Sin commit: la actividad reciente ya mantiene el cron habilitado."
+          fi
