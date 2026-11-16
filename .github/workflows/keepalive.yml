@@ -1,4 +1,4 @@
-name: MCP keepalive
+﻿name: MCP keepalive
 
 # Mantiene despierto el Space MCP cada 12 h (cron en la nube, sin depender del PC).
 on:
@@ -45,6 +45,21 @@ jobs:
           echo "✅ MCP OK — $tools tools"
           echo "### ✅ MCP despierto — $tools tools" >> "$GITHUB_STEP_SUMMARY"
           echo "Hora UTC: $(date -u +'%Y-%m-%d %H:%M:%SZ')" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Despertar la consola web (Space privado)
+        env:
+          CONSOLE_URL: https://alcides777-reachy-web-console.hf.space/api/meta
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::notice::Sin secret HF_TOKEN; se omite la consola web privada."
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 \
+                 -H "Authorization: Bearer $HF_TOKEN" "$CONSOLE_URL" || true)
+          echo "consola web → HTTP $code"
+          echo "### 🕹️ Consola web → HTTP $code" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Mantener el repo activo (1 commit/semana)
         run: |
